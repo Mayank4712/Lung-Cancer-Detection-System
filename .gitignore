@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Model weights / data
+data/
+*.pth
+*.pt
+*.onnx
+*.h5
+*.hdf5
+
+# Raw Kaggle datasets (not source — keep out of git)
+Lung_CT_Class_Dataset/
+Lung_Nodule_Dataset/
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Logs
+*.log
+server.out.log
+server.err.log
+
+# Environments and secrets
+.env
+.env.local
+.env*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test / cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local spot-check verification output
+spotcheck_masks/
