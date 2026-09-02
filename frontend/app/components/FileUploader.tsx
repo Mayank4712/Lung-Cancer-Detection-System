@@ -74,10 +74,10 @@ export default function FileUploader() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           onClick={() => inputRef.current?.click()}
-          className={`w-full rounded-2xl border-2 border-dashed p-10 text-center transition-colors ${
+          className={`w-full rounded-2xl border-2 border-dashed p-10 text-center transition-all duration-300 ${
             dragging
-              ? "border-accent-400 bg-accent-500/10"
-              : "border-slate-700 bg-slate-900/40 hover:border-accent-500/60 hover:bg-slate-900/70"
+              ? "border-accent-400 bg-accent-500/10 shadow-glow"
+              : "border-slate-700/80 bg-slate-900/40 backdrop-blur-md hover:border-accent-500/60 hover:bg-slate-900/70 hover:shadow-glow"
           }`}
         >
           <UploadCloud className="mx-auto mb-3 h-10 w-10 text-accent-400" />
@@ -93,9 +93,9 @@ export default function FileUploader() {
           layout
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-center gap-4 rounded-2xl border border-slate-700 bg-slate-900/60 p-4"
+          className="flex items-center gap-4 rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4 backdrop-blur-md"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent-500/15">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent-500/15 ring-1 ring-accent-400/20">
             <FileImage className="h-6 w-6 text-accent-400" />
           </div>
           <div className="min-w-0 flex-1">

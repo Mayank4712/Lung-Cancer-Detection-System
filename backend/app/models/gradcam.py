@@ -12,6 +12,16 @@ import torch
 import torch.nn.functional as F
 
 
+#: Minimum peak CAM intensity; below this the attention signal is considered
+#: noise and an all-zero heatmap is returned (no background scaling to 100%).
+NOISE_FLOOR = 0.01
+#: Activations below this fraction of the peak are treated as diffuse haze and
+#: zeroed out before visualization.
+LOW_ACTIVATION_FRACTION = 0.20
+#: Gaussian kernel size for smoothing blocky/pixelated CAM contours.
+BLUR_KERNEL = (11, 11)
+
+
 class GradCAM:
     def __init__(self, model: torch.nn.Module, target_layer: torch.nn.Module) -> None:
         self.model = model
@@ -36,7 +46,11 @@ class GradCAM:
         """Compute the CAM for ``input_tensor`` and return a [0, 1] float map.
 
         input_tensor: (1, C, H, W). Returns (H, W) float32 normalized to [0, 1],
-        bilinearly resized to the input spatial size.
+        bilinearly resized to the input spatial size. The raw CAM is peak-
+        normalized (not min-max, which would amplify background noise), low
+        activations below 20% of the peak are zeroed to remove diffuse haze, and
+        the result is Gaussian-blurred for smooth organic contours. If the peak
+        is below ``NOISE_FLOOR`` an all-zero map is returned.
         """
         self.model.eval()
         if input_tensor.dim() == 3:
@@ -69,14 +83,30 @@ class GradCAM:
         ).squeeze(0).squeeze(0)
 
         cam = F.relu(cam)
-        cam_min = cam.min()
-        cam_max = cam.max()
-        if cam_max > cam_min:
-            cam = (cam - cam_min) / (cam_max - cam_min)
-        else:
-            cam = torch.zeros_like(cam)
 
-        return cam.detach().cpu().numpy()
+        cam_max = float(cam.max())
+        if cam_max < NOISE_FLOOR:
+            # Negligible attention signal -> clean all-zero heatmap.
+            return np.zeros(
+                (input_tensor.shape[-2], input_tensor.shape[-1]), dtype=np.float32
+            )
+
+        # Peak normalization keeps relative contrast without scaling background
+        # noise up to full brightness (unlike min-max normalization).
+        cam = cam / cam_max
+
+        # Zero out diffuse low-level haze (background bleed between true peaks).
+        cam = cam * (cam >= LOW_ACTIVATION_FRACTION)
+
+        cam_np = cam.detach().cpu().numpy().astype(np.float32)
+
+        # Smooth blocky/pixelated contours into organic heat shapes.
+        if cam_np.shape[0] >= BLUR_KERNEL[0] and cam_np.shape[1] >= BLUR_KERNEL[1]:
+            cam_np = cv2.GaussianBlur(cam_np, BLUR_KERNEL, 0)
+
+        # Clamp back to [0, 1] after blurring (edges of the blurred peaks can
+        # dip slightly below the threshold; keep them clean).
+        return np.clip(cam_np, 0.0, 1.0)
 
     def __del__(self) -> None:
         try:

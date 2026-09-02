@@ -33,6 +33,7 @@ class SegmentationResult(BaseModel):
     has_nodule: bool
     mask_base64: str
     bounding_box: BoundingBox
+    detection_boxes: list[BoundingBox] = []
     nodule_area_pixels: int
     confidence_map: str
 

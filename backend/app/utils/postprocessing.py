@@ -95,22 +95,40 @@ def process_gradcam(
     alpha: float = 0.4,
     colormap: int = cv2.COLORMAP_JET,
 ) -> dict:
-    """Build heatmap + overlay PNG Data URIs from a [0,1] CAM."""
-    cam_uint8 = (np.clip(cam, 0.0, 1.0) * 255).astype(np.uint8)
-    colored = cv2.applyColorMap(cam_uint8, colormap)
+    """Build heatmap + overlay PNG Data URIs from a [0,1] CAM.
+
+    The overlay uses the CAM itself as a per-pixel blend weight, so zero-intensity
+    (background) regions remain untouched while active regions take on the JET
+    color — no constant-alpha tint leaks over the whole slice.
+    """
+    cam = np.clip(np.asarray(cam, dtype=np.float32), 0.0, 1.0)
+    cam_uint8 = (cam * 255).astype(np.uint8)
+    colored = cv2.applyColorMap(cam_uint8, colormap)  # BGR
 
     # Heatmap alone (as RGB PNG).
     heatmap_rgb = cv2.cvtColor(colored, cv2.COLOR_BGR2RGB)
     heatmap_bgr_for_encode = cv2.cvtColor(heatmap_rgb, cv2.COLOR_RGB2BGR)
 
-    # Overlay over the original (resized to match the CAM if needed).
-    orig = original_rgb
+    # Overlay: wrap the colored heatmap to the original size when needed.
+    orig = np.asarray(original_rgb)
     if colored.shape[:2] != orig.shape[:2]:
         colored = cv2.resize(
             colored, (orig.shape[1], orig.shape[0]), interpolation=cv2.INTER_LINEAR
         )
+        blur_cam = cv2.resize(
+            cam, (orig.shape[1], orig.shape[0]), interpolation=cv2.INTER_LINEAR
+        )
+    else:
+        blur_cam = cam
+
     orig_bgr = cv2.cvtColor(orig, cv2.COLOR_RGB2BGR)
-    overlay_img = cv2.addWeighted(orig_bgr, 1.0 - alpha, colored, alpha, 0)
+    # Per-pixel alpha weight: 0 where the CAM is 0 (hide), else scaled by the
+    # constant alpha for a clean, focused blend.
+    per_pixel_alpha = (blur_cam[..., None].astype(np.float32)) * np.float32(alpha)
+    overlay_img = (
+        orig_bgr.astype(np.float32) * (1.0 - per_pixel_alpha)
+        + colored.astype(np.float32) * per_pixel_alpha
+    ).astype(np.uint8)
 
     return {
         "heatmap_base64": _encode_bgr_png(heatmap_bgr_for_encode),

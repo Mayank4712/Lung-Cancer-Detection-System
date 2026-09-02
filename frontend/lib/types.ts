@@ -16,6 +16,7 @@ export interface SegmentationResult {
   has_nodule: boolean;
   mask_base64: string;
   bounding_box: BoundingBox;
+  detection_boxes: BoundingBox[];
   nodule_area_pixels: number;
   confidence_map: string;
 }

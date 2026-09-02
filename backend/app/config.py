@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     device: str = _auto_device()
     use_mixed_precision: bool = False
     confidence_threshold: float = 0.70
+    seg_threshold: float = 0.5
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

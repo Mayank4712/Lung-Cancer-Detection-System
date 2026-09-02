@@ -37,6 +37,29 @@ UNCERTAINTY_EXPLANATION = (
     "Heatmap shows regions most important for classification"
 )
 
+# Classifier-segmenter agreement gate: a bounding box is only reported when the
+# classifier predicts a nodule with at least this confidence AND the segmenter
+# detects a connected region of at least this many pixels (small blobs are mostly
+# noise on healthy scans, but genuinely small nodules should not be discarded).
+BOUNDING_BOX_MIN_CONFIDENCE = 0.60
+BOUNDING_BOX_MIN_AREA = 15
+
+# Segmentation sigmoid threshold is now configurable via the SEG_THRESHOLD
+# environment variable (default 0.5).  See config.py for the setting.
+
+# When the classifier is strongly confident of a nodule but the segmenter found
+# nothing valid, fall back to the GradCAM heatmap to localize the suspicious
+# area. Only used at or above this confidence.
+GRADCAM_FALLBACK_MIN_CONFIDENCE = 0.70
+# The fallback heatmap is thresholded at this fraction of its peak to isolate the
+# dominant activation region.
+GRADCAM_FALLBACK_PEAK_FRACTION = 0.60
+# Fallback bounding boxes smaller than this area (in displayed-image pixels) are
+# degenerate noise slivers (e.g. a 5x1 px residual) rather than a localized
+# suspicious region, so they are rejected. Genuinely small nodules, like the
+# 24 px^2 one, are comfortably above this and are kept.
+GRADCAM_FALLBACK_MIN_BOX_AREA = 15
+
 
 def _state_dict_from_ckpt(path: Path, device: torch.device):
     """Load a checkpoint: handle a bare state_dict or a {'model': ...} wrapper."""
@@ -203,14 +226,72 @@ class LungCancerInferenceService:
             seg_logits = self.segmenter(seg_tensor)
         seg_np = seg_logits[0].detach().cpu().numpy()  # (1, 512, 512)
         seg_result = postprocessing.process_segmentation(
-            seg_np, confidence_threshold=0.5
+            seg_np, confidence_threshold=settings.seg_threshold
         )
 
-        # --- GradCAM on the classifier ---
+        # --- GradCAM on the classifier (needs to run before fallback) ---
         original_rgb = np.asarray(image.convert("RGB"))
         clf_cam = self.gradcam_clf.generate(clf_tensor)
+        # Zero edge activations from the border shortcut using the same ROI mask
+        # applied to the classifier input (consistent, class-agnostic geometry).
+        cam_mask = preprocessing.central_roi_mask(clf_cam.shape[:2])
+        clf_cam = clf_cam * cam_mask
         # CAM is 256x256; resize to original for a faithful overlay.
         clf_cam_resized = _resize_cam(clf_cam, original_rgb)
+
+        # --- Classifier-segmenter agreement gating for bounding boxes ---
+        # A box is only trusted when the classifier calls it a nodule with
+        # sufficient confidence AND the segmenter region is large enough to be a
+        # real nodule rather than a noise blob. Otherwise detection_boxes is
+        # strictly empty and has_nodule is False.
+        classifier_says_nodule = pred_class == "Lung_Nodule" and (
+            confidence >= BOUNDING_BOX_MIN_CONFIDENCE
+        )
+        seg_area = int(seg_result["nodule_area_pixels"])
+        seg_bbox = seg_result["bounding_box"]
+        valid_bbox = (
+            seg_bbox["x_min"] is not None
+            and seg_area >= BOUNDING_BOX_MIN_AREA
+        )
+
+        detection_boxes: list[dict] = []
+        if classifier_says_nodule and valid_bbox:
+            # Map the segmenter bbox (computed in 512x512 mask space) into the
+            # original-image coordinate space so it renders on top of the
+            # displayed CT slice consistently with the GradCAM fallback box.
+            detection_boxes.append(
+                _seg_bbox_to_original(seg_bbox, original_rgb.shape[:2])
+            )
+
+        # --- GradCAM fallback bounding box ---
+        # If the classifier is strongly confident of a nodule but the segmenter
+        # produced no valid box (threshold too strict, tiny nodule, or a nodule
+        # sitting in the segmenter's blind spot), localize it from the GradCAM
+        # heatmap so a bounding box is still displayed.
+        if (
+            not detection_boxes
+            and pred_class == "Lung_Nodule"
+            and confidence >= GRADCAM_FALLBACK_MIN_CONFIDENCE
+        ):
+            fallback = _gradcam_contour_bbox(clf_cam_resized)
+            if fallback is not None:
+                detection_boxes.append(fallback)
+
+        nodule_detected = bool(detection_boxes)
+        seg_result["has_nodule"] = nodule_detected
+        seg_result["detection_boxes"] = detection_boxes
+        if nodule_detected:
+            # Keep the singular bounding_box field in the same original-image
+            # coordinate space as detection_boxes.
+            seg_result["bounding_box"] = detection_boxes[0]
+        else:
+            seg_result["bounding_box"] = {
+                "x_min": None,
+                "y_min": None,
+                "x_max": None,
+                "y_max": None,
+            }
+
         gradcam_result = postprocessing.process_gradcam(
             clf_cam_resized,
             original_rgb,
@@ -248,3 +329,67 @@ def _resize_cam(cam: np.ndarray, target_rgb: np.ndarray) -> np.ndarray:
         (target_rgb.shape[1], target_rgb.shape[0]),
         interpolation=cv2.INTER_LINEAR,
     )
+
+
+def _gradcam_contour_bbox(cam: np.ndarray) -> dict | None:
+    """Localize the dominant GradCAM activation as a bounding box.
+
+    ``cam`` is a [0, 1] heatmap in displayed (original-image) coordinates that
+    has already had its outer border neutralized. The heatmap is thresholded at
+    GRADCAM_FALLBACK_PEAK_FRACTION of its peak and the largest connected contour
+    is converted to a [x_min, y_min, x_max, y_max] bounding rectangle.
+
+    Returns None when there is no meaningful activation to box.
+    """
+    import cv2
+
+    cam = np.asarray(cam, dtype=np.float32)
+    if cam.size == 0 or float(cam.max()) <= 0.0:
+        return None
+
+    binary = (cam > GRADCAM_FALLBACK_PEAK_FRACTION * float(cam.max())).astype(
+        np.uint8
+    ) * 255
+
+    contours, _ = cv2.findContours(
+        binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if not contours:
+        return None
+
+    largest = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(largest)
+    if w < 1 or h < 1:
+        return None
+    if (w * h) < GRADCAM_FALLBACK_MIN_BOX_AREA:
+        # Degenerate noise sliver — not a localized suspicious region.
+        return None
+
+    return {
+        "x_min": int(x),
+        "y_min": int(y),
+        "x_max": int(x + w),
+        "y_max": int(y + h),
+    }
+
+
+def _seg_bbox_to_original(bbox: dict, original_shape: tuple[int, int]) -> dict:
+    """Map a segmenter bounding box from 512x512 mask space to the original image.
+
+    The segmenter center-crops the image to a square then resizes to 512x512, so
+    its mask coordinates live in 512x512 space centered on the original. This
+    reverses that transform so the box overlays the displayed CT slice correctly:
+        orig_x = crop_origin_x + (bbox_512_x * crop_size / 512)
+    where crop_size = min(orig_w, orig_h) and the crop is centered.
+    """
+    orig_h, orig_w = original_shape[:2]
+    crop = float(min(orig_w, orig_h))
+    scale = crop / 512.0
+    ox = (orig_w - crop) / 2.0
+    oy = (orig_h - crop) / 2.0
+    return {
+        "x_min": int(round(ox + bbox["x_min"] * scale)),
+        "y_min": int(round(oy + bbox["y_min"] * scale)),
+        "x_max": int(round(ox + bbox["x_max"] * scale)),
+        "y_max": int(round(oy + bbox["y_max"] * scale)),
+    }

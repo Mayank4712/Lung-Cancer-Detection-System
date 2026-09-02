@@ -3,13 +3,14 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0b1120;
-  --surface: #111a2e;
-  --surface-2: #0f172a;
+  --bg: #0b0f17;
+  --surface: #131927;
+  --surface-2: #0f1520;
   --line: #1e293b;
   --text: #e2e8f0;
   --muted: #94a3b8;
   --accent: #22d3ee;
+  --emerald: #10b981;
 }
 
 html,
@@ -18,8 +19,145 @@ body {
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* ---- Glassmorphism panel helper ---- */
+@layer components {
+  .glass-card {
+    @apply rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-md shadow-panel;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  .glass-card:hover {
+    @apply border-slate-700/80;
+  }
+  .glass-card-glow:hover {
+    box-shadow: 0 0 30px -8px rgba(34, 211, 238, 0.35);
+  }
+}
+
+/* ---- Custom range slider (transparency / mask opacity) ---- */
+input[type="range"].ui-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    var(--accent) var(--fill, 50%),
+    rgba(51, 65, 85, 0.8) var(--fill, 50%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].ui-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="range"].ui-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 6px rgba(34, 211, 238, 0.28);
+}
+input[type="range"].ui-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.18);
+}
+
+/* ---- Animated pill slider track fill ---- */
+input[type="range"].ui-slider::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+}
+input[type="range"].ui-slider::-moz-range-track {
+  background: transparent;
+  border: none;
+}
+
+/* ---- Skeleton shimmer ---- */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(30, 41, 59, 0.6) 25%,
+    rgba(51, 65, 85, 0.8) 50%,
+    rgba(30, 41, 59, 0.6) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ---- Radiology crosshair corner brackets ---- */
+.viewport-frame {
+  position: relative;
+}
+.viewport-frame::before,
+.viewport-frame::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+  z-index: 10;
+}
+.viewport-frame::before {
+  top: 10px;
+  left: 10px;
+  border-top: 2px solid rgba(34, 211, 238, 0.7);
+  border-left: 2px solid rgba(34, 211, 238, 0.7);
+  border-top-left-radius: 6px;
+}
+.viewport-frame::after {
+  bottom: 10px;
+  right: 10px;
+  border-bottom: 2px solid rgba(34, 211, 238, 0.7);
+  border-right: 2px solid rgba(34, 211, 238, 0.7);
+  border-bottom-right-radius: 6px;
+}
+
+/* ---- Slim scrollbars ---- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 65, 85, 0.6);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.8);
+}
+
+/* ---- Subtle text gradient for headings ---- */
+.text-gradient {
+  background: linear-gradient(100deg, #67e8f9 0%, #a5f3fc 40%, #34d399 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
