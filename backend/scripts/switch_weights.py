@@ -1,11 +1,14 @@
 """Switch active model weights to a saved version.
 
 Usage:
-    python scripts/switch_weights.py v1_original
-    python scripts/switch_weights.py v2_regularized
+    python scripts/switch_weights.py <version_name>
 
 Copies the version's classifier.pth and segmenter.pth into the active
 weights directory (app/weights/), overwriting whatever is there.
+
+Available versions:
+    v2_regularized  — retrained with group-split, label smoothing, Dice-weighted loss
+    v3              — current active weights (latest training run)
 """
 from __future__ import annotations
 
@@ -42,6 +45,6 @@ def main(version: str) -> None:
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python scripts/switch_weights.py <version_name>")
-        print("Example: python scripts/switch_weights.py v1_original")
+        print("Example: python scripts/switch_weights.py v3")
         sys.exit(1)
     main(sys.argv[1])
