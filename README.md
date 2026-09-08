@@ -2,10 +2,12 @@
 
 A deep-learning medical imaging platform that classifies, segments, and explains lung nodules in CT slices, served through a FastAPI backend with a Next.js web frontend.
 
+**Pipeline:** ResNet-50 classification → DeepLabV3 segmentation → Grad-CAM heatmap visualization.
+
 > **Disclaimer: This is a research/demo project, not a medical diagnostic device.
 > Results must not be used for clinical decision-making.**
 
-## What it does
+## Project Overview
 
 Given a single CT slice (PNG/JPG), the system runs a three-stage inference pipeline:
 
@@ -14,117 +16,117 @@ Given a single CT slice (PNG/JPG), the system runs a three-stage inference pipel
    `is_uncertain` flag (when confidence < 0.70).
 2. **Segmentation** — DeepLabV3-ResNet101 U-Net binary mask localizing the
    nodule, with a bounding box, pixel area, and a JET confidence map.
-3. **Explainability** — GradCAM heatmap and blended overlay highlighting the
+3. **Explainability** — Grad-CAM heatmap and blended overlay highlighting the
    regions the classifier found most important.
 
-The full API contract is defined by the Pydantic models in
-`backend/app/schemas.py`.
+The full API contract is defined by the Pydantic models in `backend/app/schemas.py`.
 
 ## Prerequisites
 
-- **Python 3.9+** (tested with 3.13)
+- **Python 3.10+** (tested with 3.13)
 - **Node.js 18+** and npm
-- **Git LFS** — this repository stores model weights (`.pth` files) via
-  [Git LFS](https://git-lfs.github.com). If you clone without Git LFS
-  installed, `classifier.pth` and `segmenter.pth` will be tiny pointer files
-  (~130 bytes each) instead of real weights, and the backend will run in
-  **demo mode** (random predictions). Install Git LFS **before** cloning:
-  - Windows: download the installer from <https://git-lfs.github.com>
-  - macOS: `brew install git-lfs`
-  - Linux: `sudo apt install git-lfs` (or your distro's equivalent)
+- **Git LFS**
 
-## Clone
+> **Critical note:** Cloning without Git LFS installed leaves the `.pth` model
+> files as ~130-byte pointer stubs instead of real weights. Install Git LFS
+> **before** cloning, and always run `git lfs pull` after cloning to download the
+> actual weight files.
+> - Windows: install from <https://git-lfs.github.com>
+> - macOS: `brew install git-lfs`
+> - Linux: `sudo apt install git-lfs` (or your distro's equivalent)
+
+## Step-by-Step Setup Guide
+
+### Step 1: Clone Repository & Pull Large Files
 
 ```bash
-git clone https://github.com/Mayank4712/Lung-Cancer-Detection-System.git
+git clone <repo-url>
 cd Lung-Cancer-Detection-System
-git lfs pull   # download the real weight files (safe to run even if LFS was installed before cloning)
+git lfs pull   # download the real weight files
 ```
 
-Verify the weights are real (not pointer stubs):
+### Step 2: Download & Extract Dataset
 
-```bash
-ls -lh backend/app/weights/classifier.pth   # ~99 MB, not ~130 bytes
-ls -lh backend/app/weights/segmenter.pth    # ~245 MB, not ~130 bytes
+1. Download the dataset from Kaggle:
+   <https://www.kaggle.com/datasets/ucimachinelearning/lung-nodule-dataset>
+2. Extract the downloaded folders directly into the project **ROOT** directory so
+   the layout matches:
+
+```
+Lung-Cancer-Detection-System/
+├── Lung_CT_Class_Dataset/
+│   ├── Healthy/
+│   └── Lung_Nodule/
+└── Lung_Nodule_Dataset/
+    ├── Images/
+    └── Annotations/
 ```
 
-## Backend setup
+> **Note:** The raw dataset folders live directly in the repository root (they are
+> listed in `.gitignore` so the raw image files are never committed to Git).
+
+### Step 3: Backend Setup
 
 ```bash
 cd backend
-python -m venv .venv
-.venv\Scripts\activate        # Windows — on macOS/Linux use: source .venv/bin/activate
+python -m venv venv
+venv\Scripts\activate            # Windows — on macOS/Linux use: source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Start the backend:
+Verify the weights exist (not Git LFS pointer stubs):
+
+```bash
+ls -lh backend/app/weights/classifier.pth   # ~99 MB
+ls -lh backend/app/weights/segmenter.pth    # ~245 MB
+```
+
+Start the backend server:
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-If the weights loaded correctly, `/health` will return `"models_loaded": true`:
+### Step 4: Frontend Setup
 
 ```bash
-curl http://127.0.0.1:8000/health
-```
-
-If either `.pth` file is missing or corrupted, the backend falls back to **demo
-mode** — the API still responds but with random/pretrained-only (meaningless)
-predictions. `/health` reports `"models_loaded": false` in that case.
-
-Configuration can be overridden via `backend/.env` or environment variables —
-see `backend/app/config.py` for all available keys (`api_host`, `api_port`,
-`max_file_size_mb`, `confidence_threshold`, `cors_origins`, `model_version`,
-etc.).
-
-## Frontend setup
-
-```bash
-cd frontend
+cd ../frontend
 npm install
 ```
 
-Create `frontend/.env.local` (or copy from the example):
+Create `frontend/.env.local` in the `frontend/` directory:
 
 ```
 NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 ```
 
-Start the dev server:
+Start the web interface:
 
 ```bash
 npm run dev
 ```
 
-Open <http://localhost:3000> in your browser.
+### Step 5: Verify & Run Inference
 
-For a production build:
-
-```bash
-npm run build
-npm run start
-```
-
-## Verifying it works
-
-1. With both services running, check the backend health:
+1. Open <http://localhost:3000> in your browser.
+2. Test the backend health endpoint:
    ```bash
    curl http://127.0.0.1:8000/health
    # → { "status": "healthy", "models_loaded": true, "gpu_available": false }
    ```
-2. Open <http://localhost:3000> in your browser.
-3. Upload a CT slice image (PNG or JPG, max 10 MB) via the drag-and-drop area.
-   You should see classification results, a segmentation mask overlay, and a
-   GradCAM heatmap.
+3. Upload a sample CT scan from `Lung_CT_Class_Dataset/` or `Lung_Nodule_Dataset/`
+   to test inference, segmentation, and Grad-CAM generation.
 
-You can also test via the CLI:
+If the weights loaded correctly, `/health` will return `"models_loaded": true`. If
+either `.pth` file is missing or a stub, the backend falls back to **demo mode** —
+the API still responds but with random/meaningless predictions, and `/health`
+reports `"models_loaded": false`.
 
-```bash
-curl.exe -F "image=@Lung_Nodule_Dataset/Lung_Nodule_Dataset/Images/1.png" http://127.0.0.1:8000/predict
-```
+Configuration can be overridden via `backend/.env` or environment variables — see
+`backend/app/config.py` for available keys (`api_host`, `api_port`,
+`max_file_size_mb`, `confidence_threshold`, `cors_origins`, `model_version`, etc.).
 
-## Project structure
+## Project Structure
 
 ```
 Lung Cancer Detection System/
@@ -155,46 +157,44 @@ Lung Cancer Detection System/
 └── README.md
 ```
 
-## Weights provenance
+## Weights Provenance
 
-The shipped checkpoints were produced by a Colab GPU training run and copied
-into this repository. Previous versions are preserved in
-`backend/app/weights/versions/`:
+The shipped checkpoints were produced by a Colab GPU training run and copied into
+this repository. Previous versions are preserved in `backend/app/weights/versions/`:
 
 | Version | Notes |
 |---------|-------|
 | `v2_regularized` | Label smoothing, Dice-weighted loss, group-aware splits |
 | `v3` | Current active weights |
 
-Use `backend/scripts/switch_weights.py <version>` to swap the active weights to
-a saved version. See `TRAINING.md` for full training instructions and
+Use `backend/scripts/switch_weights.py <version>` to swap the active weights to a
+saved version. See `TRAINING.md` for full training instructions and
 hyperparameters.
 
-## Known limitations
+## Known Limitations & Domain Shift Notes
 
-- **Proof-of-concept only:** the classifier was trained on `Lung_CT_Class_Dataset`
-  and `Lung_Nodule_Dataset` (public Kaggle data). It performs well in-distribution
-  (~92–96% confidence, correctly varied across samples) but showed a significant
-  accuracy drop (~50%) when tested on a genuinely external dataset
-  (IQ-OTH/NCCD). This is attributed to a brightness/windowing domain shift
-  between institutions — different CT scanner settings and windowing
-  parameters produce images with substantially different intensity
-  distributions.
-- **Uniform confidence on unfamiliar data:** on its own training distribution,
-  the classifier can produce very high, near-100% confidence predictions. This
-  most likely reflects strong separability between that dataset's two classes
-  rather than proven real-world generalization.
+> This is an **academic proof-of-concept**, not a clinical device.
+
+- **In-distribution performance:** the classifier was trained on
+  `Lung_CT_Class_Dataset` and `Lung_Nodule_Dataset` (public Kaggle data) and
+  performs well in-distribution (~92–96% confidence, correctly varied across
+  samples).
+- **External dataset performance / domain shift:** when tested on a genuinely
+  external dataset (IQ-OTH/NCCD), accuracy dropped significantly (~50%). This is
+  attributed to a **brightness/windowing domain shift** between institutions —
+  different CT scanner settings and windowing parameters produce images with
+  substantially different intensity distributions.
+- **Uniform confidence on unfamiliar data:** on its own training distribution, the
+  classifier can produce very high, near-100% confidence predictions, reflecting
+  strong separability between the two classes in that dataset rather than proven
+  real-world generalization.
 - **Limited training data:** both models were trained on small public Kaggle
-  datasets, not large-scale clinical cohorts. No external validation was
-  performed beyond the IQ-OTH/NCCD spot-check described above.
+  datasets, not large-scale clinical cohorts. No external validation was performed
+  beyond the IQ-OTH/NCCD spot-check described above.
 - **No clinical validation:** the models have not been validated against any
   clinical benchmark and must not be used for diagnostic decisions.
 
-> **Bottom line:** this is a research/proof-of-concept tool demonstrating a
-> classification + segmentation + explainability pipeline on lung CT scans. It
-> is **not** a clinical device.
-
-## API endpoints
+## API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -203,13 +203,13 @@ hyperparameters.
 
 `POST /predict` accepts multipart form-data (field name `image`, PNG/JPG, max 10
 MB) and returns the full prediction including classification, segmentation mask,
-bounding box, GradCAM heatmap, and overlay — all as base64-encoded Data URIs.
+bounding box, Grad-CAM heatmap, and overlay — all as base64-encoded Data URIs.
 
-## Frontend features
+## Frontend Features
 
 - Drag-and-drop upload with client-side validation (PNG/JPG, 10 MB max)
 - Image preview with zoom/pan
 - Classification result with per-class probability bars and an uncertainty badge
 - Segmentation mask overlay with opacity slider and bounding-box toggle
-- GradCAM heatmap/overlay viewer with transparency slider
+- Grad-CAM heatmap/overlay viewer with transparency slider
 - Animated transitions between upload → loading → results states
